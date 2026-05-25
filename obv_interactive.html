@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<style>
+  body { margin:0; padding:10px 10px 4px; background:transparent; font-family:-apple-system,sans-serif; -webkit-user-select:none; user-select:none; }
+  .title { font-size:13px; font-weight:600; color:var(--color-text-primary,#808080); margin:0 0 2px; }
+  .hint  { font-size:11px; color:var(--color-text-secondary,#888); margin:0 0 8px; }
+  svg { display:block; width:100%; }
+</style>
+</head>
+<body>
+
+<p class="title">OBV — Interactive</p>
+<p class="hint">Click the direction buttons to change direction &nbsp;·&nbsp; Drag the volume bars to change volume</p>
+
+<svg id="chart" viewBox="0 0 680 475" xmlns="http://www.w3.org/2000/svg">
+
+  <!-- static labels & dividers -->
+  <text x="21" y="102" text-anchor="middle" font-size="10" fill="#999" font-family="sans-serif">Dir</text>
+  <text x="21" y="232" text-anchor="middle" font-size="10" fill="#999" font-family="sans-serif">Vol</text>
+  <text x="21" y="382" text-anchor="middle" font-size="10" fill="#999" font-family="sans-serif">OBV</text>
+  <line x1="38" y1="165" x2="642" y2="165" stroke="#bbb" stroke-width="0.5" stroke-dasharray="4 3"/>
+  <line x1="38" y1="298" x2="642" y2="298" stroke="#bbb" stroke-width="0.5" stroke-dasharray="4 3"/>
+
+  <!-- dynamic layers -->
+  <defs>
+    <linearGradient id="obvfill" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#2563eb" stop-opacity="0.18"/>
+      <stop offset="100%" stop-color="#2563eb" stop-opacity="0.02"/>
+    </linearGradient>
+  </defs>
+  <g id="candles-layer"></g>
+  <g id="vol-layer"></g>
+  <g id="obv-layer"></g>
+
+</svg>
+
+<script>
+// ── layout constants ─────────────────────────────
+const XS          = [62,120,178,236,294,352,410,468,526,584];
+const BAR_W       = 30;
+const CANDLE_CY   = 102;   // center y of candle boxes
+const CANDLE_H    = 56;    // candle box height
+const VOL_BOTTOM  = 288;   // bottom edge of volume bars
+const VOL_MAX_PX  = 88;    // max bar height in px
+const VOL_MIN     = 4;
+const VOL_MAX     = 100;
+const OBV_TOP     = 315;
+const OBV_BOTTOM  = 462;
+const UP_CLR      = '#16a34a';
+const DN_CLR      = '#dc2626';
+const OBV_CLR     = '#2563eb';
+const NS          = 'http://www.w3.org/2000/svg';
+
+// ── state ────────────────────────────────────────
+const state = [
+  {dir: 1, vol:85}, {dir: 1, vol:90},
+  {dir: 1, vol:20}, {dir: 1, vol:18},
+  {dir:-1, vol:80}, {dir:-1, vol:75},
+  {dir:-1, vol:22}, {dir: 1, vol:88},
+  {dir: 1, vol:92}, {dir: 1, vol:70},
+];
+
+// ── helpers ──────────────────────────────────────
+const svg = document.getElementById('chart');
+
+function mkEl(tag, attrs, text) {
+  const e = document.createElementNS(NS, tag);
+  for (const [k,v] of Object.entries(attrs)) e.setAttribute(k, v);
+  if (text !== undefined) e.textContent = text;
+  return e;
+}
+
+function toSVGY(clientY) {
+  const rect = svg.getBoundingClientRect();
+  const scaleY = 475 / rect.height;
+  return (clientY - rect.top) * scaleY;
+}
+
+function computeOBV() {
+  let cum = 0;
+  return state.map(c => { cum += c.dir * c.vol; return cum; });
+}
+
+// ── render candles ───────────────────────────────
+function renderCandles() {
+  const g = document.getElementById('candles-layer');
+  g.innerHTML = '';
+  state.forEach((c, i) => {
+    const x = XS[i];
+    const clr = c.dir === 1 ? UP_CLR : DN_CLR;
+    const grp = mkEl('g', {style:'cursor:pointer'});
+
+    // circle button
+    grp.appendChild(mkEl('circle', {
+      cx: x, cy: CANDLE_CY, r: 16,
+      fill: clr, opacity: 0.88
+    }));
+
+    // arrow label
+    grp.appendChild(mkEl('text', {
+      x: x, y: CANDLE_CY + 1,
+      'text-anchor':'middle', 'dominant-baseline':'central',
+      'font-size': 14, fill:'white', 'font-family':'sans-serif',
+      'font-weight': 700, style:'pointer-events:none'
+    }, c.dir === 1 ? '▲' : '▼'));
+
+    grp.addEventListener('click', () => { state[i].dir *= -1; render(); });
+    g.appendChild(grp);
+  });
+}
+
+// ── render volume bars ───────────────────────────
+function renderVolBars() {
+  const g = document.getElementById('vol-layer');
+  g.innerHTML = '';
+  state.forEach((c, i) => {
+    const x   = XS[i];
+    const clr = c.dir === 1 ? UP_CLR : DN_CLR;
+    const h   = Math.max(5, (c.vol / VOL_MAX) * VOL_MAX_PX);
+    const barY = VOL_BOTTOM - h;
+
+    // bar body (not draggable itself)
+    g.appendChild(mkEl('rect', {
+      x: x - BAR_W/2, y: barY, width: BAR_W, height: h,
+      fill: clr, rx: 2, opacity: 0.68, style:'pointer-events:none'
+    }));
+
+    // drag handle centered in bar
+    const midY = barY + h/2;
+    const handle = mkEl('g', { style:'cursor:ns-resize' });
+
+    // handle pill background
+    handle.appendChild(mkEl('rect', {
+      x: x - 10, y: midY - 11,
+      width: 20, height: 22,
+      fill: 'white', rx: 4, opacity: 0.85
+    }));
+
+    // up arrow
+    handle.appendChild(mkEl('text', {
+      x: x, y: midY - 4,
+      'text-anchor':'middle', 'dominant-baseline':'central',
+      'font-size': 8, fill: clr, 'font-family':'sans-serif',
+      'font-weight': 700, style:'pointer-events:none'
+    }, '▲'));
+
+    // down arrow
+    handle.appendChild(mkEl('text', {
+      x: x, y: midY + 5,
+      'text-anchor':'middle', 'dominant-baseline':'central',
+      'font-size': 8, fill: clr, 'font-family':'sans-serif',
+      'font-weight': 700, style:'pointer-events:none'
+    }, '▼'));
+
+    attachDrag(handle, i);
+    g.appendChild(handle);
+
+    // volume label above bar
+    g.appendChild(mkEl('text', {
+      x: x, y: barY - 8,
+      'text-anchor':'middle', 'font-size': 9,
+      fill: 'var(--color-text-secondary,#666)',
+      'font-family':'sans-serif', style:'pointer-events:none'
+    }, Math.round(c.vol)));
+  });
+}
+
+// ── render OBV ───────────────────────────────────
+function renderOBV() {
+  const g = document.getElementById('obv-layer');
+  g.innerHTML = '';
+
+  const vals = computeOBV();
+  const minV  = Math.min(0, ...vals);
+  const maxV  = Math.max(0, ...vals);
+  const span  = (maxV - minV) || 1;
+  const pad   = span * 0.12;
+  const H     = OBV_BOTTOM - OBV_TOP;
+
+  function yOf(v) {
+    return OBV_BOTTOM - ((v - (minV - pad)) / (span + 2*pad)) * H;
+  }
+
+  const zeroY = yOf(0);
+
+  // zero line
+  if (zeroY > OBV_TOP && zeroY < OBV_BOTTOM) {
+    g.appendChild(mkEl('line', {
+      x1:38, y1:zeroY, x2:642, y2:zeroY,
+      stroke:'#aaa', 'stroke-width':0.8, 'stroke-dasharray':'3 3'
+    }));
+    g.appendChild(mkEl('text', {
+      x:35, y:zeroY+3, 'text-anchor':'end',
+      'font-size':9, fill:'#aaa', 'font-family':'sans-serif'
+    }, '0'));
+  }
+
+  // build points
+  const pts = XS.map((x,i) => `${x},${yOf(vals[i])}`).join(' ');
+
+  // fill
+  g.appendChild(mkEl('polygon', {
+    points: `${XS[0]},${zeroY} ${pts} ${XS[9]},${zeroY}`,
+    fill: OBV_CLR, opacity: 0.1
+  }));
+
+  // line
+  g.appendChild(mkEl('polyline', {
+    points: pts, fill:'none',
+    stroke: OBV_CLR, 'stroke-width':2.2,
+    'stroke-linejoin':'round', 'stroke-linecap':'round'
+  }));
+
+  // dots + value labels
+  XS.forEach((x, i) => {
+    const y = yOf(vals[i]);
+    g.appendChild(mkEl('circle', { cx:x, cy:y, r:3.5, fill:OBV_CLR }));
+
+    const above = (i === 0) || (vals[i] >= vals[i-1]);
+    g.appendChild(mkEl('text', {
+      x, y: above ? y - 7 : y + 14,
+      'text-anchor':'middle', 'font-size':9,
+      fill: OBV_CLR, 'font-family':'sans-serif', 'font-weight':500
+    }, Math.round(vals[i])));
+  });
+}
+
+// ── drag logic ───────────────────────────────────
+function attachDrag(el, idx) {
+  // mouse
+  el.addEventListener('mousedown', e => {
+    e.preventDefault();
+    const startY   = toSVGY(e.clientY);
+    const startVol = state[idx].vol;
+
+    function onMove(ev) {
+      const dy   = startY - toSVGY(ev.clientY); // up = positive
+      const dVol = (dy / VOL_MAX_PX) * VOL_MAX;
+      state[idx].vol = Math.min(VOL_MAX, Math.max(VOL_MIN, startVol + dVol));
+      render();
+    }
+    function onUp() {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    }
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  });
+
+  // touch
+  el.addEventListener('touchstart', e => {
+    e.preventDefault();
+    const startY   = toSVGY(e.touches[0].clientY);
+    const startVol = state[idx].vol;
+
+    function onMove(ev) {
+      const dy   = startY - toSVGY(ev.touches[0].clientY);
+      const dVol = (dy / VOL_MAX_PX) * VOL_MAX;
+      state[idx].vol = Math.min(VOL_MAX, Math.max(VOL_MIN, startVol + dVol));
+      render();
+    }
+    function onEnd() {
+      window.removeEventListener('touchmove', onMove);
+      window.removeEventListener('touchend', onEnd);
+    }
+    window.addEventListener('touchmove', onMove, {passive:false});
+    window.addEventListener('touchend', onEnd);
+  }, {passive:false});
+}
+
+// ── main render ──────────────────────────────────
+function render() {
+  renderCandles();
+  renderVolBars();
+  renderOBV();
+}
+
+render();
+</script>
+</body>
+</html>
