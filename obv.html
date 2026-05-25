@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<style>
+  body { margin:0; padding:12px 10px 8px; background:transparent; font-family:-apple-system,sans-serif; }
+  .title { font-size:13px; font-weight:600; color:var(--color-text-primary,#808080); margin:0 0 4px; }
+  .legend { display:flex; gap:18px; font-size:11px; color:var(--color-text-secondary,#555); margin:0 0 8px; flex-wrap:wrap; }
+  .legend span { display:flex; align-items:center; gap:4px; }
+  .dot { display:inline-block; width:10px; height:10px; border-radius:2px; }
+</style>
+</head>
+<body>
+
+<p class="title">OBV</p>
+<div class="legend">
+  <span><span class="dot" style="background:#16a34a"></span> Up candle + buying vol</span>
+  <span><span class="dot" style="background:#dc2626"></span> Down candle + selling vol</span>
+  <span><span class="dot" style="background:#2563eb; height:3px; border-radius:1px; width:18px; margin-top:3px;"></span> OBV line</span>
+</div>
+
+<!--
+  MATHEMATICAL BASIS
+  ──────────────────
+  Volume bars:   pixel height = (vol / 92) * 60
+  OBV line step: pixel change = (vol / 92) * 60   ← exact same formula
+
+  This means every OBV step in pixels equals the corresponding volume bar height.
+  A 59px bar → 59px OBV move. A 13px bar → 13px OBV move.
+
+  Candle data:
+  #   x    dir  vol   OBV(cum)   vol_px  OBV_y (baseline=515)
+  1   62   UP   85    85         55      460
+  2   120  UP   90    175        59      401   (401-460 = -59 = vol_px of C2) ✓
+  3   178  UP   20    195        13      388   (388-401 = -13) ✓
+  4   236  UP   18    213        12      376   (376-388 = -12) ✓
+  5   294  DN   80    133        52      428   (428-376 = +52) ✓
+  6   352  DN   75    58         49      477   (477-428 = +49) ✓
+  7   410  DN   22    36         14      491   (491-477 = +14) ✓
+  8   468  UP   88    124        57      434   (434-491 = -57) ✓
+  9   526  UP   92    216        60      374   (374-434 = -60) ✓
+  10  584  UP   70    286        46      328   (328-374 = -46) ✓
+-->
+
+<svg width="100%" viewBox="0 0 680 530" xmlns="http://www.w3.org/2000/svg">
+<defs>
+  <linearGradient id="obvfill" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0%" stop-color="#2563eb" stop-opacity="0.15"/>
+    <stop offset="100%" stop-color="#2563eb" stop-opacity="0.01"/>
+  </linearGradient>
+</defs>
+
+<!-- ─── Group shading ─── -->
+<rect x="47"  y="46" width="88"  height="170" fill="#16a34a" opacity="0.05" rx="3"/>
+<rect x="163" y="46" width="88"  height="170" fill="#16a34a" opacity="0.03" rx="3"/>
+<rect x="279" y="46" width="146" height="170" fill="#dc2626" opacity="0.04" rx="3"/>
+<rect x="453" y="46" width="146" height="170" fill="#16a34a" opacity="0.05" rx="3"/>
+
+<!-- ─── Group labels ─── -->
+<text x="91"  y="33" text-anchor="middle" font-size="10" fill="#15803d" font-weight="700" font-family="sans-serif">↑ High vol</text>
+<text x="207" y="33" text-anchor="middle" font-size="10" fill="#15803d" font-family="sans-serif">↑ Low vol</text>
+<text x="325" y="33" text-anchor="middle" font-size="10" fill="#b91c1c" font-weight="700" font-family="sans-serif">↓ High vol</text>
+<text x="400" y="33" text-anchor="middle" font-size="10" fill="#b91c1c" font-family="sans-serif">↓ Low vol</text>
+<text x="526" y="33" text-anchor="middle" font-size="10" fill="#15803d" font-weight="700" font-family="sans-serif">↑ High vol</text>
+
+<!-- ─── Section dividers ─── -->
+<line x1="38" y1="222" x2="642" y2="222" stroke="#aaa" stroke-width="0.5" stroke-dasharray="4 3"/>
+<line x1="38" y1="318" x2="642" y2="318" stroke="#aaa" stroke-width="0.5" stroke-dasharray="4 3"/>
+
+<!-- ─── Section labels ─── -->
+<text x="22" y="44"  text-anchor="middle" font-size="10" fill="#999" font-family="sans-serif">Price</text>
+<text x="22" y="236" text-anchor="middle" font-size="10" fill="#999" font-family="sans-serif">Vol</text>
+<text x="22" y="332" text-anchor="middle" font-size="10" fill="#999" font-family="sans-serif">OBV</text>
+
+<!-- ══════════════════════════════════════════ -->
+<!--  CANDLES                                  -->
+<!--  y = 213 - ((p-98)/42)*165               -->
+<!--  p=98→213  p=140→48                      -->
+<!-- ══════════════════════════════════════════ -->
+
+<!-- C1 x=62  UP  O=103→193 H=113→154 L=101→201 C=111→162  vol=85 -->
+<line x1="62"  y1="154" x2="62"  y2="201" stroke="#16a34a" stroke-width="1.2"/>
+<rect x="47"  y="162" width="30" height="31" fill="#16a34a" rx="1"/>
+
+<!-- C2 x=120 UP  O=111→162 H=122→119 L=109→170 C=120→127  vol=90 -->
+<line x1="120" y1="119" x2="120" y2="170" stroke="#16a34a" stroke-width="1.2"/>
+<rect x="105" y="127" width="30" height="35" fill="#16a34a" rx="1"/>
+
+<!-- C3 x=178 UP  O=120→127 H=125→107 L=119→131 C=123→115  vol=20 -->
+<line x1="178" y1="107" x2="178" y2="131" stroke="#16a34a" stroke-width="1.2"/>
+<rect x="163" y="115" width="30" height="12" fill="#16a34a" rx="1"/>
+
+<!-- C4 x=236 UP  O=123→115 H=127→99  L=121→123 C=125→107  vol=18 -->
+<line x1="236" y1="99"  x2="236" y2="123" stroke="#16a34a" stroke-width="1.2"/>
+<rect x="221" y="107" width="30" height="8"  fill="#16a34a" rx="1"/>
+
+<!-- C5 x=294 DN  O=125→107 H=127→99  L=115→146 C=117→138  vol=80 -->
+<line x1="294" y1="99"  x2="294" y2="146" stroke="#dc2626" stroke-width="1.2"/>
+<rect x="279" y="107" width="30" height="31" fill="#dc2626" rx="1"/>
+
+<!-- C6 x=352 DN  O=117→138 H=119→131 L=109→170 C=111→162  vol=75 -->
+<line x1="352" y1="131" x2="352" y2="170" stroke="#dc2626" stroke-width="1.2"/>
+<rect x="337" y="138" width="30" height="24" fill="#dc2626" rx="1"/>
+
+<!-- C7 x=410 DN  O=111→162 H=113→154 L=108→174 C=109→170  vol=22 -->
+<line x1="410" y1="154" x2="410" y2="174" stroke="#dc2626" stroke-width="1.2"/>
+<rect x="395" y="162" width="30" height="8"  fill="#dc2626" rx="1"/>
+
+<!-- C8 x=468 UP  O=110→166 H=120→127 L=108→174 C=119→131  vol=88 -->
+<line x1="468" y1="127" x2="468" y2="174" stroke="#16a34a" stroke-width="1.2"/>
+<rect x="453" y="131" width="30" height="35" fill="#16a34a" rx="1"/>
+
+<!-- C9 x=526 UP  O=119→131 H=130→87  L=117→138 C=128→95   vol=92 -->
+<line x1="526" y1="87"  x2="526" y2="138" stroke="#16a34a" stroke-width="1.2"/>
+<rect x="511" y="95"  width="30" height="36" fill="#16a34a" rx="1"/>
+
+<!-- C10 x=584 UP  O=128→95  H=135→68  L=126→103 C=133→76   vol=70 -->
+<line x1="584" y1="68"  x2="584" y2="103" stroke="#16a34a" stroke-width="1.2"/>
+<rect x="569" y="76"  width="30" height="19" fill="#16a34a" rx="1"/>
+
+<!-- ══════════════════════════════════════════ -->
+<!--  VOLUME BARS                              -->
+<!--  height = (vol/92)*60  — same scale as OBV steps -->
+<!--  bottom y=302                             -->
+<!-- ══════════════════════════════════════════ -->
+
+<rect x="47"  y="247" width="30" height="55" fill="#16a34a" opacity="0.65" rx="1"/> <!-- vol=85 h=55 -->
+<rect x="105" y="243" width="30" height="59" fill="#16a34a" opacity="0.65" rx="1"/> <!-- vol=90 h=59 -->
+<rect x="163" y="289" width="30" height="13" fill="#16a34a" opacity="0.65" rx="1"/> <!-- vol=20 h=13 -->
+<rect x="221" y="290" width="30" height="12" fill="#16a34a" opacity="0.65" rx="1"/> <!-- vol=18 h=12 -->
+<rect x="279" y="250" width="30" height="52" fill="#dc2626" opacity="0.65" rx="1"/> <!-- vol=80 h=52 -->
+<rect x="337" y="253" width="30" height="49" fill="#dc2626" opacity="0.65" rx="1"/> <!-- vol=75 h=49 -->
+<rect x="395" y="288" width="30" height="14" fill="#dc2626" opacity="0.65" rx="1"/> <!-- vol=22 h=14 -->
+<rect x="453" y="245" width="30" height="57" fill="#16a34a" opacity="0.65" rx="1"/> <!-- vol=88 h=57 -->
+<rect x="511" y="242" width="30" height="60" fill="#16a34a" opacity="0.65" rx="1"/> <!-- vol=92 h=60 -->
+<rect x="569" y="256" width="30" height="46" fill="#16a34a" opacity="0.65" rx="1"/> <!-- vol=70 h=46 -->
+
+<!-- ══════════════════════════════════════════ -->
+<!--  OBV LINE                                 -->
+<!--  baseline y=515 (OBV=0)                  -->
+<!--  each step = (vol/92)*60 — same as bars  -->
+<!-- ══════════════════════════════════════════ -->
+
+<!-- Fill -->
+<polygon points="62,460 120,401 178,388 236,376 294,428 352,477 410,491 468,434 526,374 584,328 584,515 62,515"
+  fill="url(#obvfill)"/>
+
+<!-- Line -->
+<polyline points="62,460 120,401 178,388 236,376 294,428 352,477 410,491 468,434 526,374 584,328"
+  fill="none" stroke="#2563eb" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round"/>
+
+<!-- Dots -->
+<circle cx="62"  cy="460" r="3.5" fill="#2563eb"/>
+<circle cx="120" cy="401" r="3.5" fill="#2563eb"/>
+<circle cx="178" cy="388" r="3.5" fill="#2563eb"/>
+<circle cx="236" cy="376" r="3.5" fill="#2563eb"/>
+<circle cx="294" cy="428" r="3.5" fill="#2563eb"/>
+<circle cx="352" cy="477" r="3.5" fill="#2563eb"/>
+<circle cx="410" cy="491" r="3.5" fill="#2563eb"/>
+<circle cx="468" cy="434" r="3.5" fill="#2563eb"/>
+<circle cx="526" cy="374" r="3.5" fill="#2563eb"/>
+<circle cx="584" cy="328" r="3.5" fill="#2563eb"/>
+
+<!-- ─── OBV slope labels ─── -->
+<text x="82"  y="412" text-anchor="middle" font-size="10" fill="#1d4ed8" font-weight="700" font-family="sans-serif">steep ↑</text>
+<text x="207" y="367" text-anchor="middle" font-size="10" fill="#1d4ed8" font-family="sans-serif">gentle ↑</text>
+<text x="300" y="463" text-anchor="middle" font-size="10" fill="#1d4ed8" font-weight="700" font-family="sans-serif">steep ↓</text>
+<text x="381" y="506" text-anchor="middle" font-size="10" fill="#1d4ed8" font-family="sans-serif">gentle ↓</text>
+<text x="490" y="385" text-anchor="middle" font-size="10" fill="#1d4ed8" font-weight="700" font-family="sans-serif">steep ↑</text>
+
+</svg>
+</body>
+</html>
