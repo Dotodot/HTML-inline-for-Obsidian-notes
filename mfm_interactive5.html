@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.9/katex.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.9/katex.min.js"></script>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 10px;
+    background: transparent;
+    font-family: -apple-system, sans-serif;
+    user-select: none; -webkit-user-select: none;
+    color: var(--color-text-primary, #ddd);
+  }
+  .title { font-size:13px; font-weight:600; margin:0 0 2px; }
+  .hint  { font-size:11px; color:var(--color-text-secondary,#888); margin:0 0 10px; }
+  .layout { display:flex; gap:28px; align-items:flex-start; }
+  #candle-wrap { flex: 0 0 215px; }
+
+  /* ── formula panel ── */
+  #formula-wrap { flex:1; padding-top:16px; }
+  .f-label   { font-size:11px; color:var(--color-text-secondary,#888); margin:0 0 6px; }
+  .f-section { margin-bottom:20px; }
+  .katex     { font-size:1.05em; }
+  #cSvg      { touch-action: none; }
+
+  /* gauge */
+  .gauge-track {
+    position:relative; height:18px;
+    background:#333; border-radius:9px; overflow:hidden;
+  }
+  .gauge-fill { position:absolute; top:0; height:100%; border-radius:9px; }
+  .gauge-center { position:absolute; top:0; bottom:0; left:50%; width:1.5px; background:#666; }
+  .gauge-ticks { display:flex; justify-content:space-between; font-size:10px; color:#888; margin-top:3px; }
+  .mfm-result  { font-size:28px; font-weight:700; margin:12px 0 2px; }
+  .mfm-interp  { font-size:12px; font-style:italic; margin-bottom:10px; }
+</style>
+</head>
+<body>
+
+<p class="title">Money Flow Multiplier (MFM) — Interactive</p>
+<p class="hint">Drag the close handle ▲▼ up or down</p>
+
+<div class="layout">
+
+  <!-- ══ Candle SVG ══ -->
+  <div id="candle-wrap">
+    <svg id="cSvg" viewBox="0 0 240 410" width="100%" xmlns="http://www.w3.org/2000/svg">
+
+      <!-- ── H−L bracket (left) ── -->
+      <line x1="28" y1="55"  x2="28" y2="355" stroke="#666" stroke-width="1.5"/>
+      <line x1="28" y1="55"  x2="40" y2="55"  stroke="#666" stroke-width="1.5"/>
+      <line x1="28" y1="355" x2="40" y2="355" stroke="#666" stroke-width="1.5"/>
+      <text transform="translate(16,205) rotate(-90)"
+            text-anchor="middle" font-size="10" fill="#888" font-family="sans-serif">H − L = 15</text>
+
+      <!-- ── Static dashed lines: High / Mid / Low ── -->
+      <line x1="72"  y1="55"  x2="128" y2="55"  stroke="#666" stroke-width="0.8" stroke-dasharray="3 2"/>
+      <line x1="72"  y1="205" x2="128" y2="205" stroke="#555" stroke-width="0.8" stroke-dasharray="4 2"/>
+      <line x1="72"  y1="355" x2="128" y2="355" stroke="#666" stroke-width="0.8" stroke-dasharray="3 2"/>
+
+      <!-- ── Labels ── -->
+      <text x="134" y="59"  font-size="11" fill="#888" font-family="sans-serif">High</text>
+      <text x="134" y="209" font-size="11" fill="#666" font-family="sans-serif">Mid</text>
+      <text x="134" y="359" font-size="11" fill="#888" font-family="sans-serif">Low</text>
+
+      <!-- ── Dynamic layer ── -->
+      <g id="dyn"></g>
+
+    </svg>
+  </div>
+
+  <!-- ══ Formula + Gauge ══ -->
+  <div id="formula-wrap">
+
+    <!-- Formula: both forms -->
+    <div class="f-section">
+      <div class="f-label">Formula</div>
+      <div id="formula-static"></div>
+    </div>
+
+    <!-- With values -->
+    <div class="f-section">
+      <div class="f-label">With values</div>
+      <div id="vals-row"></div>
+    </div>
+
+    <!-- Simplified -->
+    <div class="f-section">
+      <div class="f-label">Simplified</div>
+      <div id="simp-row"></div>
+    </div>
+
+    <!-- Result -->
+    <div id="mfm-result" class="mfm-result"></div>
+    <div id="mfm-interp" class="mfm-interp"></div>
+
+    <!-- Gauge -->
+    <div class="f-label">MFM gauge</div>
+    <div class="gauge-track">
+      <div id="gauge-fill" class="gauge-fill"></div>
+      <div class="gauge-center"></div>
+    </div>
+    <div class="gauge-ticks">
+      <span>−1</span><span>−0.5</span><span>0</span><span>+0.5</span><span>+1</span>
+    </div>
+
+  </div>
+</div>
+
+<script>
+const HIGH = 115, LOW = 100, OPEN = 105;
+const Y_TOP = 55, Y_BOT = 355, Y_MID = 205;
+const CX = 100, BW = 44, BX = CX - BW/2;
+const NS = 'http://www.w3.org/2000/svg';
+
+let closeY = 240; // initial close ~105.75 — above Open(102) = green candle, below Mid(107.5) = negative MFM
+
+function priceToY(p) { return Y_TOP + (HIGH - p) / (HIGH - LOW) * (Y_BOT - Y_TOP); }
+function yToPrice(y)  { return HIGH - (y - Y_TOP) / (Y_BOT - Y_TOP) * (HIGH - LOW); }
+function clamp(v,lo,hi) { return Math.min(hi, Math.max(lo, v)); }
+function toSVGY(clientY) {
+  const r = document.getElementById('cSvg').getBoundingClientRect();
+  return (clientY - r.top) / r.height * 410;
+}
+function mkEl(tag, attrs, text) {
+  const e = document.createElementNS(NS, tag);
+  for (const [k,v] of Object.entries(attrs)) e.setAttribute(k,v);
+  if (text !== undefined) e.textContent = text;
+  return e;
+}
+function colorFor(mfm) {
+  if (mfm >  0.05) return '#22c55e';
+  if (mfm < -0.05) return '#ef4444';
+  return '#aaa';
+}
+
+const Y_OPEN = priceToY(OPEN); // fixed y for open line
+
+function render() {
+  const g = document.getElementById('dyn');
+  g.innerHTML = '';
+
+  const C   = yToPrice(closeY);
+  const mfm = (2*C - HIGH - LOW) / (HIGH - LOW);
+  const clr = colorFor(mfm);
+
+  const isUpCandle = C >= OPEN;
+  const bodyColor  = isUpCandle ? '#22c55e' : '#ef4444';
+  const bodyTop    = Math.min(closeY, Y_OPEN);
+  const bodyBot    = Math.max(closeY, Y_OPEN);
+
+  const hcPx = closeY - Y_TOP;          // H−C in pixels
+  const clPx = Y_BOT - closeY;          // C−L in pixels
+  const numPx = Math.abs(clPx - hcPx);  // numerator in pixels
+  const isPos = clPx > hcPx + 1;
+  const isNeg = hcPx > clPx + 1;
+
+  // ── Wick: exactly High → Low, same color as body ──
+  g.appendChild(mkEl('line', {
+    x1:CX, y1:Y_TOP, x2:CX, y2:Y_BOT,
+    stroke:bodyColor, 'stroke-width':2, 'stroke-linecap':'round'
+  }));
+
+  // ── Candle body (Open → Close) ──
+  g.appendChild(mkEl('rect', {
+    x:BX, y:bodyTop, width:BW, height:Math.max(2, bodyBot - bodyTop),
+    fill:bodyColor, opacity:0.85, rx:2
+  }));
+
+  // ── Open dashed line ──
+  g.appendChild(mkEl('line', {
+    x1:BX-8, y1:Y_OPEN, x2:BX+BW+8, y2:Y_OPEN,
+    stroke:'#888', 'stroke-width':1, 'stroke-dasharray':'3 2'
+  }));
+  g.appendChild(mkEl('text', {
+    x:BX-10, y:Y_OPEN+4, 'text-anchor':'end',
+    'font-size':11, fill:'#888', 'font-family':'sans-serif'
+  }, 'Open'));
+
+  // ── Close line ──
+  const closeLine = mkEl('line', {
+    x1:BX-8, y1:closeY, x2:BX+BW+8, y2:closeY,
+    stroke:'white', 'stroke-width':2.5, 'stroke-linecap':'round',
+    style:'cursor:ns-resize; pointer-events:none'
+  });
+  g.appendChild(closeLine);
+
+  // ── ▲▼ drag handle pill ──
+  const pill = mkEl('g', {style:'cursor:ns-resize'});
+  pill.appendChild(mkEl('rect', {
+    x:CX-12, y:closeY-11, width:24, height:22,
+    fill:'white', rx:4, opacity:0.92
+  }));
+  pill.appendChild(mkEl('text', {
+    x:CX, y:closeY-3,
+    'text-anchor':'middle', 'dominant-baseline':'central',
+    'font-size':8, fill:bodyColor, 'font-family':'sans-serif', 'font-weight':700,
+    style:'pointer-events:none'
+  }, '▲'));
+  pill.appendChild(mkEl('text', {
+    x:CX, y:closeY+6,
+    'text-anchor':'middle', 'dominant-baseline':'central',
+    'font-size':8, fill:bodyColor, 'font-family':'sans-serif', 'font-weight':700,
+    style:'pointer-events:none'
+  }, '▼'));
+  g.appendChild(pill);
+
+  // ── Close price label ──
+  g.appendChild(mkEl('text', {
+    x:BX-10, y:closeY-8, 'text-anchor':'end',
+    'font-size':11, fill:'white', 'font-family':'sans-serif', 'font-weight':600
+  }, `Close: ${C.toFixed(1)}`));
+
+  // ── Right side annotations: H-C and C-L ──
+  const annX   = BX + BW + 8;
+  const hcMidY = (Y_TOP + closeY) / 2;
+  const clMidY = (closeY + Y_BOT) / 2;
+
+  g.appendChild(mkEl('line', {x1:annX, y1:Y_TOP,  x2:annX, y2:closeY, stroke:'#ef4444', 'stroke-width':1, opacity:0.7}));
+  g.appendChild(mkEl('text', {
+    x:annX+3, y:hcMidY+4, 'font-size':10, fill:'#ef4444', 'font-family':'sans-serif'
+  }, `H−C: ${(HIGH-C).toFixed(1)}`));
+
+  g.appendChild(mkEl('line', {x1:annX, y1:closeY, x2:annX, y2:Y_BOT,  stroke:'#22c55e', 'stroke-width':1, opacity:0.7}));
+  g.appendChild(mkEl('text', {
+    x:annX+3, y:clMidY+4, 'font-size':10, fill:'#22c55e', 'font-family':'sans-serif'
+  }, `C−L: ${(C-LOW).toFixed(1)}`));
+
+  // ── Numerator bracket (second column, x=180) ──
+  const numAnnX = 182;
+  if (isPos) {
+    const numY = closeY + hcPx;
+    const numMidY = (numY + Y_BOT) / 2;
+    g.appendChild(mkEl('line', {x1:numAnnX, y1:numY, x2:numAnnX, y2:Y_BOT, stroke:'#22c55e', 'stroke-width':1.2}));
+    g.appendChild(mkEl('line', {x1:numAnnX-3, y1:numY,  x2:numAnnX+3, y2:numY,  stroke:'#22c55e', 'stroke-width':1.2}));
+    g.appendChild(mkEl('line', {x1:numAnnX-3, y1:Y_BOT, x2:numAnnX+3, y2:Y_BOT, stroke:'#22c55e', 'stroke-width':1.2}));
+    g.appendChild(mkEl('text', {
+      x:numAnnX+5, y:numMidY-5, 'font-size':9, fill:'#22c55e', 'font-family':'sans-serif', 'font-weight':600
+    }, 'Num:'));
+    g.appendChild(mkEl('text', {
+      x:numAnnX+5, y:numMidY+7, 'font-size':9, fill:'#22c55e', 'font-family':'sans-serif'
+    }, `${numPx.toFixed(1)}`));
+  } else if (isNeg) {
+    const numEndY = Y_TOP + hcPx - clPx;
+    const numMidY = (Y_TOP + numEndY) / 2;
+    g.appendChild(mkEl('line', {x1:numAnnX, y1:Y_TOP,   x2:numAnnX, y2:numEndY, stroke:'#ef4444', 'stroke-width':1.2}));
+    g.appendChild(mkEl('line', {x1:numAnnX-3, y1:Y_TOP,   x2:numAnnX+3, y2:Y_TOP,   stroke:'#ef4444', 'stroke-width':1.2}));
+    g.appendChild(mkEl('line', {x1:numAnnX-3, y1:numEndY, x2:numAnnX+3, y2:numEndY, stroke:'#ef4444', 'stroke-width':1.2}));
+    g.appendChild(mkEl('text', {
+      x:numAnnX+5, y:numMidY-5, 'font-size':9, fill:'#ef4444', 'font-family':'sans-serif', 'font-weight':600
+    }, 'Num:'));
+    g.appendChild(mkEl('text', {
+      x:numAnnX+5, y:numMidY+7, 'font-size':9, fill:'#ef4444', 'font-family':'sans-serif'
+    }, `${numPx.toFixed(1)}`));
+  } else {
+    g.appendChild(mkEl('text', {
+      x:numAnnX, y:Y_MID+4, 'font-size':9, fill:'#aaa', 'font-family':'sans-serif', 'text-anchor':'middle'
+    }, 'Num: 0'));
+  }
+  const num = 2*C - HIGH - LOW;
+  const den = HIGH - LOW;
+
+  katex.render(
+    `MFM = \\frac{2 \\times ${C.toFixed(1)} - ${HIGH} - ${LOW}}{${HIGH} - ${LOW}}`,
+    document.getElementById('vals-row'),
+    {throwOnError: false}
+  );
+
+  katex.render(
+    `MFM = \\frac{${num.toFixed(1)}}{${den}}`,
+    document.getElementById('simp-row'),
+    {throwOnError: false}
+  );
+  document.getElementById('simp-row').style.color = clr;
+
+  const resultEl = document.getElementById('mfm-result');
+  resultEl.textContent = `= ${mfm.toFixed(3)}`;
+  resultEl.style.color = clr;
+
+  const interp =
+    mfm >  0.5  ? 'Strong buying pressure — close near top of range'
+  : mfm >  0.05 ? 'Mild buying pressure — close above midpoint'
+  : mfm < -0.5  ? 'Strong selling pressure — close near bottom of range'
+  : mfm < -0.05 ? 'Mild selling pressure — close below midpoint'
+  :               'Neutral — close at midpoint';
+
+  const interpEl = document.getElementById('mfm-interp');
+  interpEl.textContent = interp;
+  interpEl.style.color = clr;
+
+  // ── Gauge ──
+  const fill = document.getElementById('gauge-fill');
+  const pct  = Math.abs(mfm) * 50;
+  fill.style.width      = pct + '%';
+  fill.style.left       = mfm >= 0 ? '50%' : (50 - pct) + '%';
+  fill.style.background = clr;
+}
+
+// ── drag ──
+// ── Pointer events on SVG (survives re-render, smooth on mobile) ──
+const cSvg = document.getElementById('cSvg');
+let isDragging = false;
+
+cSvg.addEventListener('pointerdown', e => {
+  const svgY = toSVGY(e.clientY);
+  if (Math.abs(svgY - closeY) < 28) {
+    isDragging = true;
+    cSvg.setPointerCapture(e.pointerId);
+    e.preventDefault();
+  }
+});
+
+cSvg.addEventListener('pointermove', e => {
+  if (!isDragging) return;
+  e.preventDefault();
+  closeY = clamp(toSVGY(e.clientY), Y_TOP, Y_BOT);
+  render();
+});
+
+cSvg.addEventListener('pointerup',     () => { isDragging = false; });
+cSvg.addEventListener('pointercancel', () => { isDragging = false; });
+
+// ── static formula (rendered once) ──
+katex.render(
+  `MFM = \\frac{(Close - Low) - (High - Close)}{High - Low} = \\frac{2 \\times Close - High - Low}{High - Low}`,
+  document.getElementById('formula-static'),
+  {throwOnError: false}
+);
+
+render();
+</script>
+</body>
+</html>
